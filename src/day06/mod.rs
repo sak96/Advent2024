@@ -1,7 +1,5 @@
 use std::io::BufRead;
 
-use fxhash::FxHashSet;
-
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 enum Direction {
     N,
@@ -43,24 +41,71 @@ impl Direction {
 type State = (isize, isize, Direction);
 
 struct CustomHashMap<T> {
-    store: Vec<Option<T>>,
+    store: Vec<T>,
     cols: isize,
 }
 
-impl<T: Clone> CustomHashMap<T> {
+impl<T: Clone + Default> CustomHashMap<T> {
     pub fn new(rows: usize, cols: usize) -> Self {
         Self {
-            store: vec![None; rows * cols * 4],
+            store: vec![T::default(); rows * cols * 4],
             cols: cols as isize,
         }
     }
 
     pub fn insert(&mut self, (r, c, d): State, value: T) {
-        self.store[(r * self.cols * 4 + c * 4 + d.index()) as usize] = Some(value)
+        self.store[(r * self.cols * 4 + c * 4 + d.index()) as usize] = value
     }
 
-    pub fn get(&self, (r, c, d): &State) -> &Option<T> {
+    pub fn get(&self, (r, c, d): &State) -> &T {
         &self.store[(r * self.cols * 4 + c * 4 + d.index()) as usize]
+    }
+}
+
+struct CustomHashSet {
+    map: CustomHashMap<bool>,
+}
+
+impl CustomHashSet {
+    pub fn new(rows: usize, cols: usize) -> Self {
+        Self {
+            map: CustomHashMap::new(rows, cols),
+        }
+    }
+
+    pub fn insert(&mut self, state: State) -> bool {
+        if *self.map.get(&state) {
+            false
+        } else {
+            self.map.insert(state, true);
+            true
+        }
+    }
+
+    pub fn to_vec(&self) -> Vec<State> {
+        let (mut r, mut c, mut d) = (0, 0, 0);
+        let cols = self.map.cols;
+        self.map
+            .store
+            .iter()
+            .filter_map(move |&i| {
+                let output = if i {
+                    Some((r, c, Direction::DIRS[d]))
+                } else {
+                    None
+                };
+                d += 1;
+                if d >= 4 {
+                    c += 1;
+                    d %= 4;
+                }
+                if c >= cols {
+                    r += 1;
+                    c %= cols
+                }
+                output
+            })
+            .collect()
     }
 }
 
@@ -100,19 +145,20 @@ pub fn run<'a>(reader: Box<dyn BufRead + 'a>) {
     }
 
     let (mut x, mut y, mut d) = (sx as isize, sy as isize, Direction::N);
-    let mut moves = FxHashSet::default();
-    moves.insert((x, y));
-    while let Some((x1, y1, d1)) = memory.get(&(x, y, d)).unwrap() {
+    let mut moves = CustomHashSet::new(map.len(), map[0].len());
+    moves.insert((x, y, Direction::N));
+    while let &Some((x1, y1, d1)) = memory.get(&(x, y, d)) {
         (x, y, d) = (x1, y1, d1);
-        moves.insert((x, y));
+        moves.insert((x, y, Direction::N));
     }
+    let moves = moves.to_vec();
     println!("{}", moves.len());
 
     let mut count = 0;
-    for (r, c) in moves {
+    for (r, c, _) in moves {
         let (mut x, mut y, mut d) = (sx as isize, sy as isize, Direction::N);
-        let mut moves = FxHashSet::default();
-        while let Some((x1, y1, d1)) = memory.get(&(x, y, d)).unwrap() {
+        let mut moves = CustomHashSet::new(map.len(), map[0].len());
+        while let &Some((x1, y1, d1)) = memory.get(&(x, y, d)) {
             if (x1, y1) == (r, c) {
                 d = d.turn();
             } else {
